@@ -38,33 +38,48 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
 
+__version__ = "v1.0.0"
+
+
 @dataclass(frozen=True)
 class FileInfo:
     path: str
     size: int
 
 
-def iter_regular_files(root: str, follow_symlinks: bool = False) -> Iterable[FileInfo]:
+def iter_regular_files(
+    root: str,
+    follow_symlinks: bool = False,
+) -> Iterable[FileInfo]:
     """Yield regular files under root recursively."""
     root = os.path.abspath(root)
+    # Walk each directory under the requested root.
     for dirpath, dirnames, filenames in os.walk(root, followlinks=follow_symlinks):
+        # Visit each file name found in the current directory.
         for fn in filenames:
             p = os.path.join(dirpath, fn)
             try:
                 st = os.stat(p, follow_symlinks=follow_symlinks)
             except (FileNotFoundError, PermissionError, OSError):
                 continue
+            # Skip anything that is not a regular file.
             if not stat.S_ISREG(st.st_mode):
                 continue
             yield FileInfo(path=p, size=st.st_size)
 
 
-def file_digest(path: str, algo: str = "sha256", chunk_size: int = 1024 * 1024) -> str:
+def file_digest(
+    path: str,
+    algo: str = "sha256",
+    chunk_size: int = 1024 * 1024,
+) -> str:
     """Compute digest for a file with streaming reads."""
     h = hashlib.new(algo)
     with open(path, "rb") as f:
+        # Read the file in chunks to avoid loading it all at once.
         while True:
             chunk = f.read(chunk_size)
+            # Stop when the stream has no more bytes.
             if not chunk:
                 break
             h.update(chunk)
@@ -103,6 +118,7 @@ def scan_duplicates(
     # 1) Index source by size -> list of FileInfo
     source_by_size: Dict[int, List[FileInfo]] = {}
     src_files = list(iter_regular_files(source_dir, follow_symlinks=follow_symlinks))
+    # Group source files by size before hashing.
     for fi in src_files:
         source_by_size.setdefault(fi.size, []).append(fi)
 
@@ -110,6 +126,7 @@ def scan_duplicates(
     src_digest_cache: Dict[str, str] = {}
 
     def get_src_digest(p: str) -> Optional[str]:
+        # Reuse source digests that were already computed.
         if p in src_digest_cache:
             return src_digest_cache[p]
         try:
@@ -126,12 +143,15 @@ def scan_duplicates(
     scanned = 0
     matched = 0
 
+    # Check each backup file against same-size source files.
     for bfi in bak_files:
         scanned += 1
+        # Show progress every 200 files when logging is enabled.
         if verbose and scanned % 200 == 0:
             print(f"[scan] processed {scanned}/{total_bak} backup files...", file=sys.stderr)
 
         candidates = source_by_size.get(bfi.size)
+        # Files with unique sizes cannot be content duplicates.
         if not candidates:
             continue
 
@@ -141,22 +161,30 @@ def scan_duplicates(
             continue
 
         src_matches: List[str] = []
+        # Compare the backup digest with each same-size source file.
         for sfi in candidates:
             sd = get_src_digest(sfi.path)
+            # Ignore source files that could not be hashed.
             if sd is None:
                 continue
+            # Record the source file when the content digest matches.
             if sd == b_digest:
                 src_matches.append(sfi.path)
+                # Stop early unless the caller wants every match.
                 if not all_matches:
                     break
 
+        # Skip backup files that were not found in the source.
         if not src_matches:
             continue
 
         matched += 1
 
-        # Write one row per backup file; if all_matches True, output multiple rows.
+        # Write one row per backup file.
+        # With all_matches, output multiple source rows.
+        # Emit one row for each matching source file.
         if all_matches:
+            # Store every source path that has the same digest.
             for sp in src_matches:
                 dup_rows.append(
                     {
@@ -189,9 +217,11 @@ def scan_duplicates(
         fieldnames = ["digest", "size", "backup_path", "backup_rel", "source_path", "source_rel", "match_count"]
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
+        # Write each duplicate finding as one CSV row.
         for r in dup_rows:
             w.writerow(r)
 
+    # Print scan totals when logging is enabled.
     if verbose:
         print(f"[scan] source files indexed: {len(src_files)}", file=sys.stderr)
         print(f"[scan] backup files scanned: {total_bak}", file=sys.stderr)
@@ -221,73 +251,92 @@ def purge_from_csv(
     ok = 0
     fail = 0
 
-    # Deduplicate by backup_path (CSV might contain multiple rows if all_matches was used)
+    # Deduplicate by backup_path.
+    # all_matches can create multiple rows for one backup file.
     targets: Dict[str, Dict[str, str]] = {}
 
     with open(csv_path, "r", newline="", encoding="utf-8") as f:
         r = csv.DictReader(f)
         required = {"digest", "size", "backup_path"}
+        # Ensure the CSV contains the columns needed for purge.
         if not required.issubset(set(r.fieldnames or [])):
             raise ValueError(f"CSV missing required columns: {required}")
+        # Read every CSV row and keep unique backup paths only.
         for row in r:
             rows_read += 1
             bp = row["backup_path"]
+            # Ignore rows without a backup path.
             if bp:
                 targets[bp] = row
 
+    # Print purge mode and target count when logging is enabled.
     if verbose:
         mode = "DELETE" if yes else "DRY-RUN"
         print(f"[purge] mode: {mode}", file=sys.stderr)
         print(f"[purge] unique targets from CSV: {len(targets)} (rows read: {rows_read})", file=sys.stderr)
 
+    # Process each unique backup file listed in the CSV.
     for bp, row in targets.items():
         bp_abs = os.path.abspath(bp)
 
         # Safety: must be inside backup_dir
+        # Reject CSV paths that point outside the backup directory.
         if not safe_commonpath_is_parent(backup_dir, bp_abs):
             fail += 1
+            # Report skipped paths when logging is enabled.
             if verbose:
                 print(f"[purge] SKIP (outside backup_dir): {bp_abs}", file=sys.stderr)
             continue
 
+        # Skip rows whose backup file no longer exists.
         if not os.path.exists(bp_abs):
             fail += 1
+            # Report missing files when logging is enabled.
             if verbose:
                 print(f"[purge] SKIP (missing): {bp_abs}", file=sys.stderr)
             continue
 
         # Optional verification (digest + size)
+        # Recheck file identity before deletion unless disabled.
         if verify_hash:
             try:
                 st = os.stat(bp_abs)
                 size_ok = str(st.st_size) == row["size"]
                 digest_ok = file_digest(bp_abs, algo=algo) == row["digest"]
+                # Skip the file if it no longer matches the CSV row.
                 if not (size_ok and digest_ok):
                     fail += 1
+                    # Report verify failures when logging is enabled.
                     if verbose:
                         print(f"[purge] SKIP (verify failed): {bp_abs}", file=sys.stderr)
                     continue
             except (PermissionError, OSError, FileNotFoundError):
                 fail += 1
+                # Report verification errors when logging is enabled.
                 if verbose:
                     print(f"[purge] SKIP (verify error): {bp_abs}", file=sys.stderr)
                 continue
 
+        # Delete only when the caller explicitly passed --yes.
         if yes:
             try:
                 os.remove(bp_abs)
                 ok += 1
+                # Report deleted files when logging is enabled.
                 if verbose:
                     print(f"[purge] DELETED: {bp_abs}", file=sys.stderr)
             except (PermissionError, OSError, FileNotFoundError):
                 fail += 1
+                # Report deletion errors when logging is enabled.
                 if verbose:
                     print(f"[purge] FAIL (delete): {bp_abs}", file=sys.stderr)
         else:
             ok += 1
+            # Report dry-run targets when logging is enabled.
             if verbose:
                 print(f"[purge] WOULD DELETE: {bp_abs}", file=sys.stderr)
 
+    # Print final purge totals when logging is enabled.
     if verbose:
         print(f"[purge] success: {ok}, skipped/failed: {fail}", file=sys.stderr)
 
@@ -299,6 +348,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="dedup_backup.py",
         description="Find and remove duplicate files in backup dir that already exist in source dir (by digest).",
     )
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     ps = sub.add_parser("scan", help="Scan backup dir and write duplicate list to CSV.")
@@ -325,6 +375,7 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
+    # Dispatch the scan subcommand.
     if args.cmd == "scan":
         verbose = not args.quiet
         scan_duplicates(
@@ -338,6 +389,7 @@ def main() -> int:
         )
         return 0
 
+    # Dispatch the purge subcommand.
     if args.cmd == "purge":
         verbose = not args.quiet
         purge_from_csv(
@@ -353,5 +405,6 @@ def main() -> int:
     return 2
 
 
+# Run the CLI entry point when executed as a script.
 if __name__ == "__main__":
     raise SystemExit(main())
