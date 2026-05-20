@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
 
-__version__ = "v1.0.2"
+__version__ = "v1.0.3"
 
 
 @dataclass(frozen=True)
@@ -86,6 +86,14 @@ def file_digest(
     return h.hexdigest()
 
 
+def validate_hash_algorithm(algo: str) -> None:
+    """Raise ValueError when the requested hash algorithm is unavailable."""
+    try:
+        hashlib.new(algo)
+    except ValueError as exc:
+        raise ValueError(f"unsupported hash algorithm: {algo}") from exc
+
+
 def safe_commonpath_is_parent(parent: str, child: str) -> bool:
     """Return True if child is under parent (path traversal protection)."""
     parent = os.path.abspath(parent)
@@ -125,6 +133,8 @@ def scan_duplicates(
     source_dir = os.path.abspath(source_dir)
     backup_dir = os.path.abspath(backup_dir)
     out_csv = os.path.abspath(out_csv)
+
+    validate_hash_algorithm(algo)
 
     if paths_overlap(source_dir, backup_dir):
         raise ValueError("source and backup directories must not be the same or nested")
@@ -261,6 +271,8 @@ def purge_from_csv(
     backup_dir = os.path.abspath(backup_dir)
     csv_path = os.path.abspath(csv_path)
 
+    validate_hash_algorithm(algo)
+
     rows_read = 0
     ok = 0
     fail = 0
@@ -392,28 +404,34 @@ def main() -> int:
     # Dispatch the scan subcommand.
     if args.cmd == "scan":
         verbose = not args.quiet
-        scan_duplicates(
-            source_dir=args.source,
-            backup_dir=args.backup,
-            out_csv=args.out,
-            algo=args.algo,
-            follow_symlinks=args.follow_symlinks,
-            all_matches=args.all_matches,
-            verbose=verbose,
-        )
+        try:
+            scan_duplicates(
+                source_dir=args.source,
+                backup_dir=args.backup,
+                out_csv=args.out,
+                algo=args.algo,
+                follow_symlinks=args.follow_symlinks,
+                all_matches=args.all_matches,
+                verbose=verbose,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
         return 0
 
     # Dispatch the purge subcommand.
     if args.cmd == "purge":
         verbose = not args.quiet
-        purge_from_csv(
-            backup_dir=args.backup,
-            csv_path=args.csv,
-            yes=args.yes,
-            verify_hash=(not args.no_verify_hash),
-            algo=args.algo,
-            verbose=verbose,
-        )
+        try:
+            purge_from_csv(
+                backup_dir=args.backup,
+                csv_path=args.csv,
+                yes=args.yes,
+                verify_hash=(not args.no_verify_hash),
+                algo=args.algo,
+                verbose=verbose,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
         return 0
 
     return 2

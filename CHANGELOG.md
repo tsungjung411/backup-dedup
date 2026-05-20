@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.3 - Planned
+## v1.0.3 - 2026-05-20
 
 - Improve CLI error messages for invalid hash algorithms.
 

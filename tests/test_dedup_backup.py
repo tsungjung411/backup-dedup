@@ -1,8 +1,14 @@
 import csv
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from dedup_backup import purge_from_csv, scan_duplicates
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def read_csv(path):
@@ -87,3 +93,34 @@ def test_scan_rejects_overlapping_source_and_backup(tmp_path):
 
     with pytest.raises(ValueError, match="must not be the same or nested"):
         scan_duplicates(str(source), str(backup), str(tmp_path / "duplicates.csv"), verbose=False)
+
+
+def test_cli_reports_invalid_hash_algorithm_without_traceback(tmp_path):
+    source = tmp_path / "source"
+    backup = tmp_path / "backup"
+    source.mkdir()
+    backup.mkdir()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROJECT_ROOT / "dedup_backup.py"),
+            "scan",
+            "--source",
+            str(source),
+            "--backup",
+            str(backup),
+            "--out",
+            str(tmp_path / "duplicates.csv"),
+            "--algo",
+            "definitely-not-a-real-hash",
+        ],
+        check=False,
+        cwd=str(PROJECT_ROOT),
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 2
+    assert "unsupported hash algorithm: definitely-not-a-real-hash" in result.stderr
+    assert "Traceback" not in result.stderr
