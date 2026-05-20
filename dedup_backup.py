@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
 
-__version__ = "v1.0.0"
+__version__ = "v1.0.1"
 
 
 @dataclass(frozen=True)
@@ -96,6 +96,17 @@ def safe_commonpath_is_parent(parent: str, child: str) -> bool:
         return False
 
 
+def paths_overlap(path_a: str, path_b: str) -> bool:
+    """Return True if two paths are equal or one contains the other."""
+    path_a = os.path.abspath(path_a)
+    path_b = os.path.abspath(path_b)
+    try:
+        common = os.path.commonpath([path_a, path_b])
+    except ValueError:
+        return False
+    return common == path_a or common == path_b
+
+
 def scan_duplicates(
     source_dir: str,
     backup_dir: str,
@@ -114,6 +125,9 @@ def scan_duplicates(
     source_dir = os.path.abspath(source_dir)
     backup_dir = os.path.abspath(backup_dir)
     out_csv = os.path.abspath(out_csv)
+
+    if paths_overlap(source_dir, backup_dir):
+        raise ValueError("source and backup directories must not be the same or nested")
 
     # 1) Index source by size -> list of FileInfo
     source_by_size: Dict[int, List[FileInfo]] = {}

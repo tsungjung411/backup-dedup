@@ -8,6 +8,6 @@
 
 - Add focused pytest coverage for scan, dry-run purge, confirmed purge, path traversal protection, and source/backup overlap rejection.
 
-## v1.0.1 - Planned
+## v1.0.1 - 2026-05-20
 
 - Reject unsafe source/backup directory overlap before scanning.
