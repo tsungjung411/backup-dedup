@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
 
-__version__ = "v1.0.1"
+__version__ = "v1.0.2"
 
 
 @dataclass(frozen=True)
