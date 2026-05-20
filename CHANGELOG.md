@@ -4,7 +4,7 @@
 
 - Improve CLI error messages for missing files, invalid directories, and malformed CSV input.
 
-## v1.0.4 - Planned
+## v1.0.4 - 2026-05-20
 
 - Strengthen symlink safety checks with real path validation.
 

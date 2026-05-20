@@ -86,6 +86,59 @@ def test_purge_skips_csv_path_outside_backup_dir(tmp_path):
     assert outside.exists()
 
 
+def test_purge_skips_symlink_path_that_resolves_outside_backup_dir(tmp_path):
+    backup = tmp_path / "backup"
+    external = tmp_path / "external"
+    backup.mkdir()
+    external.mkdir()
+    outside = external / "outside.txt"
+    outside.write_text("do not delete", encoding="utf-8")
+    link = backup / "linked"
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available on this platform")
+
+    csv_path = tmp_path / "symlink.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["digest", "size", "backup_path"])
+        writer.writeheader()
+        writer.writerow({"digest": "bad", "size": str(outside.stat().st_size), "backup_path": str(link / "outside.txt")})
+
+    rows_read, ok, fail = purge_from_csv(str(backup), str(csv_path), verify_hash=False, verbose=False)
+
+    assert (rows_read, ok, fail) == (1, 0, 1)
+    assert outside.exists()
+
+
+def test_scan_skips_followed_symlink_files_that_resolve_outside_backup_dir(tmp_path):
+    source = tmp_path / "source"
+    backup = tmp_path / "backup"
+    external = tmp_path / "external"
+    source.mkdir()
+    backup.mkdir()
+    external.mkdir()
+    (source / "archive.txt").write_text("same content", encoding="utf-8")
+    (external / "outside.txt").write_text("same content", encoding="utf-8")
+    link = backup / "linked"
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available on this platform")
+    out_csv = tmp_path / "duplicates.csv"
+
+    matched = scan_duplicates(
+        str(source),
+        str(backup),
+        str(out_csv),
+        follow_symlinks=True,
+        verbose=False,
+    )
+
+    assert matched == 0
+    assert read_csv(out_csv) == []
+
+
 def test_scan_rejects_overlapping_source_and_backup(tmp_path):
     source = tmp_path / "source"
     backup = source / "backup"

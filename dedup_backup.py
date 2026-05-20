@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
 
-__version__ = "v1.0.3"
+__version__ = "v1.0.4"
 
 
 @dataclass(frozen=True)
@@ -96,8 +96,8 @@ def validate_hash_algorithm(algo: str) -> None:
 
 def safe_commonpath_is_parent(parent: str, child: str) -> bool:
     """Return True if child is under parent (path traversal protection)."""
-    parent = os.path.abspath(parent)
-    child = os.path.abspath(child)
+    parent = os.path.realpath(parent)
+    child = os.path.realpath(child)
     try:
         return os.path.commonpath([parent, child]) == parent
     except ValueError:
@@ -106,8 +106,8 @@ def safe_commonpath_is_parent(parent: str, child: str) -> bool:
 
 def paths_overlap(path_a: str, path_b: str) -> bool:
     """Return True if two paths are equal or one contains the other."""
-    path_a = os.path.abspath(path_a)
-    path_b = os.path.abspath(path_b)
+    path_a = os.path.realpath(path_a)
+    path_b = os.path.realpath(path_b)
     try:
         common = os.path.commonpath([path_a, path_b])
     except ValueError:
@@ -173,6 +173,9 @@ def scan_duplicates(
         # Show progress every 200 files when logging is enabled.
         if verbose and scanned % 200 == 0:
             print(f"[scan] processed {scanned}/{total_bak} backup files...", file=sys.stderr)
+
+        if not safe_commonpath_is_parent(backup_dir, bfi.path):
+            continue
 
         candidates = source_by_size.get(bfi.size)
         # Files with unique sizes cannot be content duplicates.
