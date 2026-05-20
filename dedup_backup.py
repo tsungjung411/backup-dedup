@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
 
-__version__ = "v1.0.4"
+__version__ = "v1.0.5"
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,18 @@ def validate_hash_algorithm(algo: str) -> None:
         raise ValueError(f"unsupported hash algorithm: {algo}") from exc
 
 
+def validate_directory(path: str, label: str) -> None:
+    """Raise ValueError when path is not an existing directory."""
+    if not os.path.isdir(path):
+        raise ValueError(f"{label} directory does not exist or is not a directory: {path}")
+
+
+def validate_file(path: str, label: str) -> None:
+    """Raise ValueError when path is not an existing file."""
+    if not os.path.isfile(path):
+        raise ValueError(f"{label} file does not exist or is not a file: {path}")
+
+
 def safe_commonpath_is_parent(parent: str, child: str) -> bool:
     """Return True if child is under parent (path traversal protection)."""
     parent = os.path.realpath(parent)
@@ -135,6 +147,8 @@ def scan_duplicates(
     out_csv = os.path.abspath(out_csv)
 
     validate_hash_algorithm(algo)
+    validate_directory(source_dir, "source")
+    validate_directory(backup_dir, "backup")
 
     if paths_overlap(source_dir, backup_dir):
         raise ValueError("source and backup directories must not be the same or nested")
@@ -275,6 +289,8 @@ def purge_from_csv(
     csv_path = os.path.abspath(csv_path)
 
     validate_hash_algorithm(algo)
+    validate_directory(backup_dir, "backup")
+    validate_file(csv_path, "CSV")
 
     rows_read = 0
     ok = 0
@@ -284,19 +300,23 @@ def purge_from_csv(
     # all_matches can create multiple rows for one backup file.
     targets: Dict[str, Dict[str, str]] = {}
 
-    with open(csv_path, "r", newline="", encoding="utf-8") as f:
-        r = csv.DictReader(f)
-        required = {"digest", "size", "backup_path"}
-        # Ensure the CSV contains the columns needed for purge.
-        if not required.issubset(set(r.fieldnames or [])):
-            raise ValueError(f"CSV missing required columns: {required}")
-        # Read every CSV row and keep unique backup paths only.
-        for row in r:
-            rows_read += 1
-            bp = row["backup_path"]
-            # Ignore rows without a backup path.
-            if bp:
-                targets[bp] = row
+    try:
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f, strict=True)
+            required = {"digest", "size", "backup_path"}
+            # Ensure the CSV contains the columns needed for purge.
+            if not required.issubset(set(r.fieldnames or [])):
+                missing = ", ".join(sorted(required - set(r.fieldnames or [])))
+                raise ValueError(f"CSV missing required columns: {missing}")
+            # Read every CSV row and keep unique backup paths only.
+            for row in r:
+                rows_read += 1
+                bp = row["backup_path"]
+                # Ignore rows without a backup path.
+                if bp:
+                    targets[bp] = row
+    except csv.Error as exc:
+        raise ValueError(f"invalid CSV: {csv_path}: {exc}") from exc
 
     # Print purge mode and target count when logging is enabled.
     if verbose:
@@ -417,7 +437,7 @@ def main() -> int:
                 all_matches=args.all_matches,
                 verbose=verbose,
             )
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             parser.error(str(exc))
         return 0
 
@@ -433,7 +453,7 @@ def main() -> int:
                 algo=args.algo,
                 verbose=verbose,
             )
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             parser.error(str(exc))
         return 0
 

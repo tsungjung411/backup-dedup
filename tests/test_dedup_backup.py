@@ -177,3 +177,82 @@ def test_cli_reports_invalid_hash_algorithm_without_traceback(tmp_path):
     assert result.returncode == 2
     assert "unsupported hash algorithm: definitely-not-a-real-hash" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_cli_reports_missing_source_directory_without_traceback(tmp_path):
+    backup = tmp_path / "backup"
+    backup.mkdir()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROJECT_ROOT / "dedup_backup.py"),
+            "scan",
+            "--source",
+            str(tmp_path / "missing-source"),
+            "--backup",
+            str(backup),
+            "--out",
+            str(tmp_path / "duplicates.csv"),
+        ],
+        check=False,
+        cwd=str(PROJECT_ROOT),
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 2
+    assert "source directory does not exist or is not a directory" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_reports_missing_csv_without_traceback(tmp_path):
+    backup = tmp_path / "backup"
+    backup.mkdir()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROJECT_ROOT / "dedup_backup.py"),
+            "purge",
+            "--backup",
+            str(backup),
+            "--csv",
+            str(tmp_path / "missing.csv"),
+        ],
+        check=False,
+        cwd=str(PROJECT_ROOT),
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 2
+    assert "CSV file does not exist or is not a file" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_reports_malformed_csv_without_traceback(tmp_path):
+    backup = tmp_path / "backup"
+    backup.mkdir()
+    csv_path = tmp_path / "broken.csv"
+    csv_path.write_text('digest,size,backup_path\n"unterminated\n', encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PROJECT_ROOT / "dedup_backup.py"),
+            "purge",
+            "--backup",
+            str(backup),
+            "--csv",
+            str(csv_path),
+        ],
+        check=False,
+        cwd=str(PROJECT_ROOT),
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 2
+    assert "invalid CSV" in result.stderr
+    assert "Traceback" not in result.stderr

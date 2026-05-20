@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.0.5 - Planned
+## v1.0.5 - 2026-05-20
 
 - Improve CLI error messages for missing files, invalid directories, and malformed CSV input.
 
